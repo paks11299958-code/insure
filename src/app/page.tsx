@@ -162,7 +162,10 @@ export default function Home() {
         {error && <div className={styles.errorBox}>{error}</div>}
 
         <button className={styles.btnAnalyze} disabled={files.length===0||loading} onClick={analyze}>
-          {loading ? '⏳ 분석 중...' : '🔍 AI 중복 분석 시작'}
+          {loading
+            ? <><span>⏳</span> 분석 중...</>
+            : <><span className={styles.btnIcon}>🔍</span> AI 중복 분석 시작</>
+          }
         </button>
 
         {loading && (
