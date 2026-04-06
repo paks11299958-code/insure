@@ -69,7 +69,7 @@ function parseResult(raw: string) {
     const quoteCount = (fixed.match(/"/g) || []).length
     if (quoteCount % 2 !== 0) fixed += '"'
     // 열린 객체/배열 닫기
-    const opens = [...fixed].reduce((acc, c) => {
+    const opens = Array.from(fixed).reduce((acc, c) => {
       if (c === '{') acc.push('}')
       if (c === '[') acc.push(']')
       if (c === '}' || c === ']') acc.pop()
