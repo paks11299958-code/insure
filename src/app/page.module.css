@@ -95,35 +95,17 @@
 }
 
 /* ── Button ── */
-@keyframes bounceIcon {
-  0%, 100% { transform: translateY(0); }
-  30% { transform: translateY(-5px); }
-  60% { transform: translateY(2px); }
-}
-
 .btnAnalyze {
-  width: 100%; padding: 1.05rem;
+  width: 100%; padding: 0.95rem;
   background: linear-gradient(135deg, #2b6cb0 0%, #3182ce 100%);
-  border: 2px solid rgba(255,100,100,0.4);
-  border-radius: 12px; color: #ff6b6b;
+  border: none; border-radius: 12px; color: #fff;
   font-family: 'Noto Sans KR', sans-serif;
-  font-size: 1.05rem; font-weight: 700; cursor: pointer;
+  font-size: 0.97rem; font-weight: 500; cursor: pointer;
   transition: all 0.2s; display: flex; align-items: center;
-  justify-content: center; gap: 10px;
-  text-shadow: 0 0 12px rgba(255,100,100,0.5);
-  letter-spacing: 0.03em;
+  justify-content: center; gap: 8px;
 }
-.btnIcon {
-  display: inline-block;
-  animation: bounceIcon 1.4s ease-in-out infinite;
-}
-.btnAnalyze:hover:not(:disabled) {
-  filter: brightness(1.15);
-  transform: translateY(-1px);
-  border-color: rgba(255,100,100,0.7);
-}
+.btnAnalyze:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
 .btnAnalyze:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
-.btnAnalyze:disabled .btnIcon { animation: none; }
 
 /* ── Loading ── */
 .loadingBox {
