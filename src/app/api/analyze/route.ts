@@ -15,7 +15,6 @@ function checkRateLimit(ip: string): boolean {
   return true
 }
 
-// 핵심: 짧은 필드만 요구해서 토큰 절약
 const JSON_SCHEMA = `{
   "summary": {
     "totalPolicies": 숫자,
@@ -48,14 +47,15 @@ const SYSTEM_PROMPT = `당신은 대한민국 보험 전문 분석 AI입니다.
 4. duplicates 배열의 각 항목은 실제 중복이 명확한 것만 포함.`
 
 function getText(msg: Anthropic.Message): string {
-  return msg.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('').trim()
+  return msg.content
+    .filter(b => b.type === 'text')
+    .map(b => (b as { type: 'text'; text: string }).text)
+    .join('')
+    .trim()
 }
 
 function parseResult(raw: string) {
-  // 백틱 제거
   let clean = raw.replace(/```json\n?|```\n?/g, '').trim()
-
-  // JSON 객체만 추출
   const start = clean.indexOf('{')
   const end = clean.lastIndexOf('}')
   if (start !== -1 && end !== -1) clean = clean.slice(start, end + 1)
@@ -63,18 +63,15 @@ function parseResult(raw: string) {
   try {
     return JSON.parse(clean)
   } catch (e) {
-    // 잘린 JSON 복구 시도: 열린 배열/객체 닫기
     let fixed = clean
-    // 잘린 문자열 닫기
     const quoteCount = (fixed.match(/"/g) || []).length
     if (quoteCount % 2 !== 0) fixed += '"'
-    // 열린 객체/배열 닫기
-    const opens = Array.from(fixed).reduce((acc, c) => {
+    const opens = Array.from(fixed).reduce((acc: string[], c: string) => {
       if (c === '{') acc.push('}')
       if (c === '[') acc.push(']')
       if (c === '}' || c === ']') acc.pop()
       return acc
-    }, [] as string[])
+    }, [])
     fixed += opens.reverse().join('')
     try {
       return JSON.parse(fixed)
@@ -84,50 +81,61 @@ function parseResult(raw: string) {
   }
 }
 
-async function callClaude(messages: Anthropic.MessageParam[], system?: string) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function callClaude(messages: any[], system?: string) {
   return client.messages.create({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 4096, // 충분히 크게
+    max_tokens: 4096,
     system: system || SYSTEM_PROMPT,
-    messages,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    messages: messages as any,
   })
 }
 
-// ── PDF 직접 분석 ──────────────────────────────────────────
+// ── PDF 직접 분석 (document API) ──────────────────────────
 async function analyzeWithPDF(pdfs: { data: string; name: string }[]) {
-  const content: Anthropic.MessageParam['content'] = [
+  const content = [
     ...pdfs.map(pdf => ({
-      type: 'document' as const,
-      source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: pdf.data },
+      type: 'document',
+      source: { type: 'base64', media_type: 'application/pdf', data: pdf.data },
     })),
     {
-      type: 'text' as const,
-      text: `위 PDF 보험 문서들을 분석하여 중복 보장 항목을 파악하고 아래 JSON 형식으로만 응답하세요.\n\n${JSON_SCHEMA}\n\n파일명: ${pdfs.map(p => p.name).join(', ')}`
-    }
+      type: 'text',
+      text: `위 PDF 보험 문서들을 분석하여 중복 보장 항목을 파악하고 아래 JSON 형식으로만 응답하세요.\n\n${JSON_SCHEMA}\n\n파일명: ${pdfs.map(p => p.name).join(', ')}`,
+    },
   ]
   return parseResult(getText(await callClaude([{ role: 'user', content }])))
 }
 
 // ── 이미지 Vision 분석 ────────────────────────────────────
-async function analyzeWithImages(images: { data: string; mediaType: string }[], fileNames: string[]) {
-  // 1단계: 이미지에서 텍스트 추출
-  const extractContent: Anthropic.MessageParam['content'] = [
+async function analyzeWithImages(
+  images: { data: string; mediaType: string }[],
+  fileNames: string[]
+) {
+  type ImgMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+  const extractContent = [
     ...images.slice(0, 10).map(img => ({
       type: 'image' as const,
       source: {
         type: 'base64' as const,
-        media_type: img.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+        media_type: img.mediaType as ImgMediaType,
         data: img.data,
       },
     })),
-    { type: 'text' as const, text: '위 보험 문서 이미지들에서 보험사명, 상품명, 보험료, 모든 보장항목명과 가입금액을 추출해서 텍스트로 정리해주세요.' }
+    {
+      type: 'text' as const,
+      text: '위 보험 문서 이미지들에서 보험사명, 상품명, 보험료, 모든 보장항목명과 가입금액을 추출해서 텍스트로 정리해주세요.',
+    },
   ]
-  const extracted = getText(await callClaude([{ role: 'user', content: extractContent }], '보험 문서에서 정보를 추출하는 AI입니다. 모든 보장 항목을 빠짐없이 추출해주세요.'))
-
-  // 2단계: 추출된 텍스트로 중복 분석
+  const extracted = getText(
+    await callClaude(
+      [{ role: 'user', content: extractContent }],
+      '보험 문서에서 정보를 추출하는 AI입니다. 모든 보장 항목을 빠짐없이 추출해주세요.'
+    )
+  )
   const analyzeMsg = await callClaude([{
     role: 'user',
-    content: `다음 보험 정보에서 중복 보장 항목을 파악하고 아래 JSON으로만 응답하세요.\n\n${JSON_SCHEMA}\n\n파일: ${fileNames.join(', ')}\n\n${extracted.slice(0, 8000)}`
+    content: `다음 보험 정보에서 중복 보장 항목을 파악하고 아래 JSON으로만 응답하세요.\n\n${JSON_SCHEMA}\n\n파일: ${fileNames.join(', ')}\n\n${extracted.slice(0, 8000)}`,
   }])
   return parseResult(getText(analyzeMsg))
 }
@@ -136,7 +144,7 @@ async function analyzeWithImages(images: { data: string; mediaType: string }[], 
 async function analyzeWithText(text: string, fileNames: string[]) {
   const msg = await callClaude([{
     role: 'user',
-    content: `다음 보험 문서를 분석하여 중복 보장 항목을 파악하고 아래 JSON으로만 응답하세요.\n\n${JSON_SCHEMA}\n\n파일: ${fileNames.join(', ')}\n\n${text.slice(0, 12000)}`
+    content: `다음 보험 문서를 분석하여 중복 보장 항목을 파악하고 아래 JSON으로만 응답하세요.\n\n${JSON_SCHEMA}\n\n파일: ${fileNames.join(', ')}\n\n${text.slice(0, 12000)}`,
   }])
   return parseResult(getText(msg))
 }
@@ -144,12 +152,22 @@ async function analyzeWithText(text: string, fileNames: string[]) {
 // ── Main Handler ──────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const ip = req.headers.get('x-forwarded-for') ?? 'unknown'
-  if (!checkRateLimit(ip)) return NextResponse.json({ error: '요청 한도 초과. 1시간 후 재시도하세요.' }, { status: 429 })
-  if (!process.env.ANTHROPIC_API_KEY) return NextResponse.json({ error: '서버 설정 오류: API 키 없음' }, { status: 500 })
+  if (!checkRateLimit(ip))
+    return NextResponse.json({ error: '요청 한도 초과. 1시간 후 재시도하세요.' }, { status: 429 })
+  if (!process.env.ANTHROPIC_API_KEY)
+    return NextResponse.json({ error: '서버 설정 오류: API 키 없음' }, { status: 500 })
 
-  let body: { text?: string; fileNames: string[]; images?: { data: string; mediaType: string }[]; pdfs?: { data: string; name: string }[] }
-  try { body = await req.json() }
-  catch { return NextResponse.json({ error: '잘못된 요청 형식' }, { status: 400 }) }
+  let body: {
+    text?: string
+    fileNames: string[]
+    images?: { data: string; mediaType: string }[]
+    pdfs?: { data: string; name: string }[]
+  }
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: '잘못된 요청 형식' }, { status: 400 })
+  }
 
   try {
     let result
